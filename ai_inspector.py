@@ -115,3 +115,4 @@ def analyze_image_with_gemini(image_bytes, mime_type="image/jpeg", api_key=None)
         "safety_score": 65,
         "summary_review": "단부 안전난간 미설치로 인한 중대재해(추락) 위험이 매우 높습니다. 작업 전 즉각적인 안전난간 보강 및 작업자 턱끈 체결 확인이 필수적입니다."
     }
+

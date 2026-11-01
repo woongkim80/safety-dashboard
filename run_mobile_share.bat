@@ -9,3 +9,4 @@ echo 먼저 다른 창에서 Streamlit 앱이 실행 중이어야 합니다.
 echo.
 cloudflared tunnel --url http://localhost:8501
 pause
+

@@ -40,6 +40,16 @@
 
 ---
 
+## 4. 실제 작업 진행 방법 (Specs-Driven Development)
+
+`AGENTS.md`가 준비되면 수강생은 복잡한 지시를 할 필요가 없습니다. Antigravity IDE 에이전트 채팅창에 다음과 같이 한 줄만 입력하면 됩니다:
+
+> 💬 **"AGENTS.md 내용에 맞춰서, 안전점검 일지를 SQLite DB에 저장하고 모바일에서도 볼 수 있는 Streamlit 기본 앱(app.py)을 작성하고 실행해줘."**
+
+에이전트가 알아서 `AGENTS.md`의 규칙(SQLite 사용, 한국어 주석, 모바일 반응형, Gemini API 연동)을 준수하며 코드를 생성하고 실행까지 도와줍니다.
+
+---
+
 ## 4. 권장 프로젝트 디렉토리 구조
 
 ```text
@@ -95,3 +105,4 @@ safety-dashboard/
 
 ### `.agents/skills/`
 - 에이전트가 자동 수행할 수 있는 반복 명령 세트 (배치 스크립트 및 원클릭 도구).
+
