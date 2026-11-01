@@ -7,3 +7,5 @@ __pycache__/
 *.egg-info/
 .DS_Store
 safety_inspection.db
+safety_records.db
+

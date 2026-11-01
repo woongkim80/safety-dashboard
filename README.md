@@ -52,3 +52,4 @@ python -m venv .venv
 브라우저에서 `http://localhost:8501` 주소로 대시보드가 자동으로 열립니다.
 
 또는 간편하게 `run.bat` 파일을 더블 클릭하여 실행할 수 있습니다.
+

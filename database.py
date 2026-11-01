@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "safety_inspection.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), "safety_records.db")
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -105,3 +105,4 @@ def delete_inspection(inspection_id):
     cursor.execute("DELETE FROM inspections WHERE id = ?", (inspection_id,))
     conn.commit()
     conn.close()
+
