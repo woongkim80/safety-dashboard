@@ -58,6 +58,7 @@ def get_storage_status():
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
+    # 1. 안전보건 점검 테이블
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS inspections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,6 +85,26 @@ def init_db():
     columns = [col[1] for col in cursor.fetchall()]
     if "company" not in columns:
         cursor.execute("ALTER TABLE inspections ADD COLUMN company TEXT NOT NULL DEFAULT '(주)대한안전건설 (원청)'")
+
+    # 2. 건설 자재 송장/전표 테이블 (safety-dashboard 내 별도 테이블로 분리 저장)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS site_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        supplier TEXT NOT NULL,
+        site_name TEXT NOT NULL,
+        item_name TEXT NOT NULL,
+        spec TEXT,
+        quantity REAL NOT NULL DEFAULT 1.0,
+        unit TEXT,
+        unit_price INTEGER DEFAULT 0,
+        total_amount INTEGER DEFAULT 0,
+        truck_no TEXT,
+        remarks TEXT,
+        ocr_raw_text TEXT,
+        created_at TEXT NOT NULL
+    )
+    """)
 
     conn.commit()
 
@@ -285,3 +306,43 @@ def delete_inspection(inspection_id):
                 conn_gs.update(data=df)
         except Exception:
             pass
+
+
+# =====================================================================
+# 자재 송품장/영수증 관리 전용 함수 (site_invoices 독립 테이블)
+# =====================================================================
+def get_all_invoices():
+    """모든 자재 송장 내역 조회"""
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM site_invoices ORDER BY id DESC", conn)
+    conn.close()
+    return df
+
+def add_invoice(date_val, supplier, site_name, item_name, spec, quantity, unit, unit_price, total_amount, truck_no, remarks, ocr_raw_text=""):
+    """자재 송장 1건 추가"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("""
+        INSERT INTO site_invoices (
+            date, supplier, site_name, item_name, spec, quantity, unit,
+            unit_price, total_amount, truck_no, remarks, ocr_raw_text, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        str(date_val), str(supplier), str(site_name), str(item_name), str(spec),
+        float(quantity), str(unit), int(unit_price), int(total_amount),
+        str(truck_no), str(remarks), str(ocr_raw_text), now_str
+    ))
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+    return new_id
+
+def delete_invoice(invoice_id):
+    """자재 송장 1건 삭제"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM site_invoices WHERE id = ?", (invoice_id,))
+    conn.commit()
+    conn.close()
+

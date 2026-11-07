@@ -3,6 +3,18 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, date
+from PIL import Image
+import io
+import re
+import numpy as np
+
+# 로컬 OCR 라이브러리 체크
+try:
+    import easyocr
+    HAS_EASYOCR = True
+except ImportError:
+    HAS_EASYOCR = False
+
 import database as db
 import ai_inspector
 
@@ -78,10 +90,13 @@ with st.sidebar:
     else:
         st.caption("ℹ️ '구글 시트 연동' 탭에서 영구 보존 설정 가능")
 
-    st.divider()
-    st.subheader("🤖 Gemini AI 설정")
-    gemini_api_key = st.text_input("Gemini API Key (선택)", type="password", help="키가 없을 경우 내장 안전규칙 데모 모드로 작동합니다.")
-    st.caption("권장 모델: `gemini-1.5-flash`")
+    # [Gemini API Key 설정 숨김 처리: 내부 보안 정책 및 로컬 OCR 우선 운영]
+    gemini_api_key = None
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            gemini_api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
 
 # 필터 적용
 filtered_df = df.copy()
@@ -101,9 +116,83 @@ st.markdown('<div class="main-title">🛡️ 현장 안전점검 & 사업자별 
 st.markdown('<div class="sub-title">원청·협력사별 점검 등록, 수정, 삭제 및 드론 AI 판독 실시간 대시보드</div>', unsafe_allow_html=True)
 
 # 4. 탭 구성
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+# 로컬 EasyOCR 리더 캐싱
+@st.cache_resource
+def get_ocr_reader():
+    if HAS_EASYOCR:
+        return easyocr.Reader(['ko', 'en'], gpu=False)
+    return None
+
+def extract_text_from_image(image_bytes):
+    """EasyOCR을 통한 전표/서류 로컬 텍스트 추출"""
+    if not HAS_EASYOCR:
+        return "로컬 OCR 엔진(EasyOCR)이 설치되지 않았습니다."
+    reader = get_ocr_reader()
+    if not reader:
+        return "OCR 리더 초기화 실패"
+    
+    img = Image.open(io.BytesIO(image_bytes))
+    img_np = np.array(img)
+    results = reader.readtext(img_np, detail=0)
+    return "\n".join(results)
+
+def parse_invoice_text(raw_text):
+    """로컬 OCR 텍스트에서 자재 송장 필수 항목 자동 파싱"""
+    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+    
+    # 날짜 추출
+    date_match = re.search(r'(\d{4}[-/.년]\s*\d{1,2}[-/.월]\s*\d{1,2})', raw_text)
+    date_val = date_match.group(1).replace("년","-").replace("월","-").replace("일","").replace("/","-").replace(".","-").replace(" ","") if date_match else str(date.today())
+    
+    # 차량번호 추출
+    truck_match = re.search(r'(\d{2,3}[가-힣]\s*\d{4})', raw_text)
+    truck_val = truck_match.group(1) if truck_match else "미기재"
+    
+    # 공급업체 추정
+    supplier_val = "자재공급업체"
+    for l in lines:
+        if any(kw in l for kw in ["주식회사", "(주)", "레미콘", "스틸", "제철", "상사", "개발"]):
+            supplier_val = l
+            break
+            
+    # 품목 추정
+    item_val = "건설자재(전표)"
+    spec_val = "규격 확인요망"
+    for l in lines:
+        if any(kw in l for kw in ["레미콘", "철근", "시멘트", "골재", "파이프", "합판", "단열재", "비계"]):
+            item_val = l
+            break
+            
+    # 수량 추정
+    qty_val = 1.0
+    for l in lines:
+        num_match = re.search(r'(\d+(?:\.\d+)?)\s*(m3|m³|ton|톤|개|매|본|kg|포)', l, re.IGNORECASE)
+        if num_match:
+            qty_val = float(num_match.group(1))
+            unit_val = num_match.group(2)
+            break
+    else:
+        unit_val = "식"
+
+    return {
+        "date": date_val,
+        "supplier": supplier_val,
+        "site_name": "본사 직영현장",
+        "item_name": item_val,
+        "spec": spec_val,
+        "quantity": qty_val,
+        "unit": unit_val,
+        "unit_price": 0,
+        "total_amount": 0,
+        "truck_no": truck_val,
+        "remarks": "로컬 OCR 자동 판독 등록",
+        "ocr_raw_text": raw_text
+    }
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 종합 현황 대시보드", 
-    "🛸 드론 사진 & 서류 AI 판독",
+    "🛸 드론 사진 & 서류 안전판독",
+    "📦 자재 송장 로컬 OCR (신규)",
     "✍️ 안전점검 신규 등록", 
     "📝 점검 기록 수정 · 삭제",
     "🛠️ 부적합 조치 관리", 
@@ -229,11 +318,11 @@ with tab1:
     )
 
 # ==========================================
-# TAB 2: 드론 사진 & 서류 AI 판독
+# TAB 2: 드론 사진 & 서류 안전판독
 # ==========================================
 with tab2:
-    st.subheader("🛸 드론 항공사진 및 안전 서류 AI 자동 판독")
-    st.write("현장에서 촬영한 고해상도 드론 사진이나 안전 서류를 업로드하면, Gemini 1.5 Flash가 **산업안전보건기준**에 따라 위험 요소를 자동 검출합니다.")
+    st.subheader("🛸 드론 항공사진 및 현장 안전 서류 자동 판독")
+    st.write("현장에서 촬영한 고해상도 드론 사진이나 안전 서류를 업로드하면, **산업안전보건기준**에 따라 핵심 위험 요소를 정밀 분석합니다.")
 
     uploaded_file = st.file_uploader(
         "📷 드론 항공사진 또는 현장 점검 사진 업로드 (JPG, PNG)", 
@@ -247,8 +336,8 @@ with tab2:
 
         with col_info:
             st.info("💡 안전난간, 개구부 덮개, 작업자 턱끈 체결, 중장비 신호수 배치 여부를 정밀 분석합니다.")
-            if st.button("🔍 Gemini AI 현장 안전 분석 실행", type="primary", use_container_width=True):
-                with st.spinner("Gemini AI가 고해상도 이미지를 정밀 분석 중입니다..."):
+            if st.button("🔍 현장 안전 위험요소 정밀 분석 실행", type="primary", use_container_width=True):
+                with st.spinner("이미지를 정밀 분석 중입니다..."):
                     img_bytes = uploaded_file.getvalue()
                     analysis = ai_inspector.analyze_image_with_gemini(
                         img_bytes, 
@@ -315,9 +404,128 @@ with tab2:
                             st.rerun()
 
 # ==========================================
-# TAB 3: 안전점검 신규 등록 (Create)
+# TAB 3: 자재 송장 로컬 OCR (신규 site_invoices 테이블 연동)
 # ==========================================
 with tab3:
+    st.subheader("📦 건설현장 자재 송품장·전표 로컬 OCR 자동 등록")
+    st.info("💡 **로컬 OCR 전용 처리**: API Key 없이 로컬 머신에서 EasyOCR을 통해 전표/송장 텍스트를 즉시 판독하며, 기존 안전점검 테이블과 완전히 분리된 `site_invoices` 테이블에 안전하게 영구 저장됩니다.")
+
+    col_ocr_left, col_ocr_right = st.columns([1, 1])
+
+    with col_ocr_left:
+        uploaded_invoice = st.file_uploader(
+            "📄 송품장 / 거래명세표 / 자재 영수증 사진 (JPG, PNG)",
+            type=["jpg", "jpeg", "png"],
+            key="uploaded_invoice_file"
+        )
+        if uploaded_invoice:
+            st.image(uploaded_invoice, caption="업로드된 전표 사진", use_container_width=True)
+
+    with col_ocr_right:
+        if uploaded_invoice:
+            if st.button("🚀 로컬 OCR 송장 자동 판독 및 추출", type="primary", use_container_width=True):
+                with st.spinner("로컬 OCR 엔진이 전표 이미지를 정밀 분석 중입니다..."):
+                    raw_text = extract_text_from_image(uploaded_invoice.getvalue())
+                    st.session_state["invoice_raw_text"] = raw_text
+                    st.session_state["parsed_invoice"] = parse_invoice_text(raw_text)
+
+        if "parsed_invoice" in st.session_state:
+            parsed = st.session_state["parsed_invoice"]
+            st.success("✅ 로컬 OCR 판독 완료! 아래 내용을 확인 후 DB에 저장하세요.")
+            
+            with st.expander("📄 로컬 OCR 추출 원문 텍스트 확인"):
+                st.text(st.session_state.get("invoice_raw_text", ""))
+
+            with st.form("save_invoice_form"):
+                st.markdown("##### 📝 자재 입고 정보 입력/수정")
+                c_inv1, c_inv2 = st.columns(2)
+                with c_inv1:
+                    inv_date = st.text_input("납품 일자", value=parsed["date"])
+                    inv_supplier = st.text_input("공급업체", value=parsed["supplier"])
+                    inv_item = st.text_input("품명", value=parsed["item_name"])
+                    inv_spec = st.text_input("규격", value=parsed["spec"])
+                with c_inv2:
+                    inv_site = st.text_input("현장명", value=parsed["site_name"])
+                    inv_qty = st.number_input("수량", value=float(parsed["quantity"]), step=1.0)
+                    inv_unit = st.text_input("단위", value=parsed["unit"])
+                    inv_truck = st.text_input("운송 차량번호", value=parsed["truck_no"])
+                
+                c_inv3, c_inv4 = st.columns(2)
+                with c_inv3:
+                    inv_price = st.number_input("단가 (원)", value=int(parsed.get("unit_price", 0)), step=1000)
+                with c_inv4:
+                    inv_total = st.number_input("공급가액/합계 (원)", value=int(parsed.get("total_amount", 0)), step=10000)
+                    
+                inv_remarks = st.text_area("비고 / 특이사항", value=parsed["remarks"])
+
+                if st.form_submit_button("💾 site_invoices 테이블에 영구 저장하기", type="primary", use_container_width=True):
+                    db.add_invoice(
+                        date_val=inv_date,
+                        supplier=inv_supplier,
+                        site_name=inv_site,
+                        item_name=inv_item,
+                        spec=inv_spec,
+                        quantity=inv_qty,
+                        unit=inv_unit,
+                        unit_price=inv_price,
+                        total_amount=inv_total,
+                        truck_no=inv_truck,
+                        remarks=inv_remarks,
+                        ocr_raw_text=st.session_state.get("invoice_raw_text", "")
+                    )
+                    st.success("🎉 `site_invoices` 전용 테이블에 성공적으로 저장되었습니다!")
+                    del st.session_state["parsed_invoice"]
+                    st.rerun()
+
+    st.markdown("---")
+    st.subheader("📋 자재 송품장 입고 누적 대시보드 (`site_invoices`)")
+    invoices_df = db.get_all_invoices()
+    if not invoices_df.empty:
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.metric("📦 총 입고 송장 건수", f"{len(invoices_df)}건")
+        with col_m2:
+            unique_suppliers = invoices_df["supplier"].nunique()
+            st.metric("🏢 거래 공급업체 수", f"{unique_suppliers}개소")
+        with col_m3:
+            total_sum = invoices_df["total_amount"].sum()
+            st.metric("💰 누적 공급가액 합계", f"{total_sum:,.0f}원" if total_sum > 0 else "집계 중")
+
+        st.dataframe(
+            invoices_df[[
+                "id", "date", "supplier", "site_name", "item_name", "spec",
+                "quantity", "unit", "unit_price", "total_amount", "truck_no", "remarks", "created_at"
+            ]],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        excel_buf = io.BytesIO()
+        with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
+            invoices_df.to_excel(writer, index=False, sheet_name='자재입고내역')
+
+        st.download_button(
+            label="📥 누적 자재 입고내역 엑셀 다운로드 (.xlsx)",
+            data=excel_buf.getvalue(),
+            file_name=f"site_materials_invoices_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+        # 개별 송장 삭제 기능
+        with st.expander("🗑️ 자재 송장 내역 삭제"):
+            del_id = st.selectbox("삭제할 송장 ID 선택", invoices_df["id"].tolist(), key="del_inv_id")
+            if st.button("선택한 송장 삭제", type="secondary"):
+                db.delete_invoice(del_id)
+                st.warning(f"송장 ID #{del_id} 항목이 삭제되었습니다.")
+                st.rerun()
+    else:
+        st.info("현재 등록된 자재 송장 내역이 없습니다. 위에서 사진을 업로드하여 첫 번째 송장을 등록해보세요.")
+
+# ==========================================
+# TAB 4: 안전점검 신규 등록 (Create)
+# ==========================================
+with tab4:
     st.subheader("✍️ 사업자별 새로운 안전점검 일지 등록")
     st.write("원청 또는 협력사별 현장 순회 점검 후 결과를 등록하세요.")
 
@@ -390,9 +598,9 @@ with tab3:
                 st.rerun()
 
 # ==========================================
-# TAB 4: 점검 기록 수정 · 삭제 (Update & Delete)
+# TAB 5: 점검 기록 수정 · 삭제 (Update & Delete)
 # ==========================================
-with tab4:
+with tab5:
     st.subheader("📝 점검 기록 수정 및 삭제 관리 (CRUD)")
     st.write("등록된 점검 기록의 세부 내용을 수정하거나, 잘못 입력된 데이터를 안전하게 삭제할 수 있습니다.")
 
@@ -488,9 +696,9 @@ with tab4:
                 st.rerun()
 
 # ==========================================
-# TAB 5: 부적합 조치 관리
+# TAB 6: 부적합 조치 관리
 # ==========================================
-with tab5:
+with tab6:
     st.subheader("🛠️ 사업자별 위해·위험 요인 시정조치 관리")
     st.write("개선 권고(주의) 또는 즉시 시정(불량) 판정을 받은 사업자별 조치 이행 현황을 추적합니다.")
 
@@ -541,9 +749,9 @@ with tab5:
         )
 
 # ==========================================
-# TAB 6: 사업자별 안전가이드
+# TAB 7: 사업자별 안전가이드
 # ==========================================
-with tab6:
+with tab7:
     st.subheader("📖 산업안전보건법상 도급인(원청) 및 수급인(협력사) 의무사항")
     st.markdown("""
     #### 🛡️ 중대재해처벌법 및 산안법 제63조 도급인의 안전조치 의무
@@ -561,9 +769,9 @@ with tab6:
     """)
 
 # ==========================================
-# TAB 7: 구글 스프레드시트 연동 관리
+# TAB 8: 구글 스프레드시트 연동 관리
 # ==========================================
-with tab7:
+with tab8:
     st.subheader("☁️ 구글 스프레드시트(Google Sheets) 영구 데이터베이스 연동")
     st.write("클라우드 서버가 재부팅되어도 현장 점검 일지가 영구 보존되도록 Google Sheets와 실시간 동기화합니다.")
 
