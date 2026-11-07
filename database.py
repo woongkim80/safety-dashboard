@@ -5,10 +5,55 @@ import os
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "safety_records.db")
 
+COLUMNS = [
+    "id", "company", "date", "inspector", "facility", "location", "category",
+    "item_name", "status", "risk_level", "description", "corrective_action",
+    "action_status", "action_deadline", "action_assignee", "created_at"
+]
+
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def get_gsheets_connection():
+    """
+    Streamlit secrets에 [connections.gsheets] 설정이 있는 경우 GSheetsConnection 반환
+    """
+    try:
+        import streamlit as st
+        from streamlit_gsheets import GSheetsConnection
+        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+            return st.connection("gsheets", type=GSheetsConnection)
+    except Exception:
+        pass
+    return None
+
+def get_storage_status():
+    """
+    현재 데이터 저장소가 Google Sheets인지 로컬 SQLite인지 상태를 반환합니다.
+    """
+    conn = get_gsheets_connection()
+    if conn:
+        try:
+            import streamlit as st
+            sheet_info = st.secrets["connections"]["gsheets"].get("spreadsheet", "연동 완료")
+            return {
+                "is_gsheets": True,
+                "label": "🟢 Google Sheets 실시간 동기화 모드",
+                "detail": sheet_info
+            }
+        except Exception:
+            return {
+                "is_gsheets": True,
+                "label": "🟢 Google Sheets 실시간 동기화 모드",
+                "detail": "설정 완료"
+            }
+    return {
+        "is_gsheets": False,
+        "label": "🟡 로컬 SQLite 모드 (구글 시트 미연동)",
+        "detail": "safety_records.db 로컬 파일에 저장 중"
+    }
 
 def init_db():
     conn = get_connection()
@@ -52,7 +97,6 @@ def init_db():
 
 def _insert_sample_data(cursor):
     sample_records = [
-        # (company, date, inspector, facility, location, category, item_name, status, risk_level, description, corrective_action, action_status, action_deadline, action_assignee)
         ("(주)대한안전건설 (원청)", "2026-10-25", "김안전", "제1제조공장", "프레스 가공실", "기계방호", "프레스 비상정지장치(양수조작버튼)", "양호", "낮음", "정상 작동 확인 및 감응속도 양호", "", "완료", "", "정기점검"),
         ("(주)대신전력 (협력사)", "2026-10-26", "이보건", "제1제조공장", "도장 라인", "유해물질", "국소배기장치 후드 풍속 측정", "주의", "보통", "배기 후드 주변 분진 누적으로 제어풍속 기준치 소폭 하회", "필터 교체 및 덕트 청소 실시 예정", "조치중", "2026-11-05", "설비팀 박반장"),
         ("(주)삼원토건 (협력사)", "2026-10-27", "김안전", "제1제조공장", "화학물질 저장고", "유해물질", "MSDS(물질안전보건자료) 비치 및 경고표지", "불량", "높음", "신규 입고 용제(세척제) 경고표지 미부착 상태 보관", "경고표지 즉시 부착 및 작업자 교육 요청", "미조치", "2026-11-02", "물류팀 최주임"),
@@ -78,25 +122,44 @@ def _insert_sample_data(cursor):
         """, (*r, now_str))
 
 def get_all_inspections():
+    """
+    모든 점검 기록 불러오기 (Google Sheets 우선, 없으면 SQLite 사용)
+    """
+    conn_gs = get_gsheets_connection()
+    if conn_gs:
+        try:
+            df = conn_gs.read(ttl=3)
+            if df is not None and not df.empty:
+                # 필수 컬럼 검증
+                for col in COLUMNS:
+                    if col not in df.columns:
+                        df[col] = ""
+                # id 정수형 변환 및 정렬
+                df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0).astype(int)
+                return df.sort_values(by=["date", "id"], ascending=[False, False])
+        except Exception:
+            pass
+
+    # SQLite 폴백
     conn = get_connection()
     df = pd.read_sql_query("SELECT * FROM inspections ORDER BY date DESC, id DESC", conn)
     conn.close()
     return df
 
 def get_companies():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT company FROM inspections WHERE company IS NOT NULL AND company != '' ORDER BY company ASC")
-    companies = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    if not companies:
-        companies = ["(주)대한안전건설 (원청)", "(주)삼원토건 (협력사)", "(주)대신전력 (협력사)", "(주)한양설비 (협력사)"]
-    return companies
+    df = get_all_inspections()
+    if not df.empty and "company" in df.columns:
+        companies = sorted(df["company"].dropna().unique().tolist())
+        if companies:
+            return companies
+    return ["(주)대한안전건설 (원청)", "(주)삼원토건 (협력사)", "(주)대신전력 (협력사)", "(주)한양설비 (협력사)"]
 
 def add_inspection(company, date, inspector, facility, location, category, item_name, status, risk_level, description, corrective_action, action_status, action_deadline, action_assignee):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 1. SQLite 저장
     conn = get_connection()
     cursor = conn.cursor()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute("""
     INSERT INTO inspections (
         company, date, inspector, facility, location, category, item_name, 
@@ -104,11 +167,43 @@ def add_inspection(company, date, inspector, facility, location, category, item_
         action_deadline, action_assignee, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (company, date, inspector, facility, location, category, item_name, status, risk_level, description, corrective_action, action_status, action_deadline, action_assignee, now_str))
+    new_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
+    # 2. Google Sheets 저장
+    conn_gs = get_gsheets_connection()
+    if conn_gs:
+        try:
+            df = conn_gs.read(ttl=0)
+            if df is None:
+                df = pd.DataFrame(columns=COLUMNS)
+            new_row = pd.DataFrame([{
+                "id": int(new_id),
+                "company": company,
+                "date": date,
+                "inspector": inspector,
+                "facility": facility,
+                "location": location,
+                "category": category,
+                "item_name": item_name,
+                "status": status,
+                "risk_level": risk_level,
+                "description": description,
+                "corrective_action": corrective_action,
+                "action_status": action_status,
+                "action_deadline": action_deadline,
+                "action_assignee": action_assignee,
+                "created_at": now_str
+            }])
+            updated_df = pd.concat([new_row, df], ignore_index=True)
+            conn_gs.update(data=updated_df)
+        except Exception:
+            pass
+
 def update_inspection(inspection_id, company, date, inspector, facility, location, category, item_name, status, risk_level, description, corrective_action, action_status, action_deadline, action_assignee):
-    """점검 기록 전체 수정 (사업자, 구역, 결과, 조치내용 등 일체)"""
+    """점검 기록 전체 수정 (SQLite 및 Google Sheets 동시 반영)"""
+    # 1. SQLite 수정
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -121,7 +216,33 @@ def update_inspection(inspection_id, company, date, inspector, facility, locatio
     conn.commit()
     conn.close()
 
+    # 2. Google Sheets 수정
+    conn_gs = get_gsheets_connection()
+    if conn_gs:
+        try:
+            df = conn_gs.read(ttl=0)
+            if df is not None and not df.empty:
+                mask = df["id"].astype(str) == str(inspection_id)
+                df.loc[mask, "company"] = company
+                df.loc[mask, "date"] = str(date)
+                df.loc[mask, "inspector"] = inspector
+                df.loc[mask, "facility"] = facility
+                df.loc[mask, "location"] = location
+                df.loc[mask, "category"] = category
+                df.loc[mask, "item_name"] = item_name
+                df.loc[mask, "status"] = status
+                df.loc[mask, "risk_level"] = risk_level
+                df.loc[mask, "description"] = description
+                df.loc[mask, "corrective_action"] = corrective_action
+                df.loc[mask, "action_status"] = action_status
+                df.loc[mask, "action_deadline"] = action_deadline
+                df.loc[mask, "action_assignee"] = action_assignee
+                conn_gs.update(data=df)
+        except Exception:
+            pass
+
 def update_action_status(inspection_id, new_status, new_action=""):
+    # 1. SQLite 수정
     conn = get_connection()
     cursor = conn.cursor()
     if new_action:
@@ -131,10 +252,36 @@ def update_action_status(inspection_id, new_status, new_action=""):
     conn.commit()
     conn.close()
 
+    # 2. Google Sheets 수정
+    conn_gs = get_gsheets_connection()
+    if conn_gs:
+        try:
+            df = conn_gs.read(ttl=0)
+            if df is not None and not df.empty:
+                mask = df["id"].astype(str) == str(inspection_id)
+                df.loc[mask, "action_status"] = new_status
+                if new_action:
+                    df.loc[mask, "corrective_action"] = new_action
+                conn_gs.update(data=df)
+        except Exception:
+            pass
+
 def delete_inspection(inspection_id):
-    """점검 기록 영구 삭제"""
+    """점검 기록 영구 삭제 (SQLite 및 Google Sheets 동시 반영)"""
+    # 1. SQLite 삭제
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM inspections WHERE id = ?", (inspection_id,))
     conn.commit()
     conn.close()
+
+    # 2. Google Sheets 삭제
+    conn_gs = get_gsheets_connection()
+    if conn_gs:
+        try:
+            df = conn_gs.read(ttl=0)
+            if df is not None and not df.empty:
+                df = df[df["id"].astype(str) != str(inspection_id)]
+                conn_gs.update(data=df)
+        except Exception:
+            pass

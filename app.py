@@ -71,6 +71,14 @@ with st.sidebar:
     selected_action = st.selectbox("⚙️ 시정조치 상태", action_list)
 
     st.divider()
+    storage_info = db.get_storage_status()
+    st.caption(f"💾 데이터베이스: **{storage_info['label']}**")
+    if storage_info["is_gsheets"]:
+        st.caption("☁️ 구글 시트 실시간 동기화 작동 중")
+    else:
+        st.caption("ℹ️ '구글 시트 연동' 탭에서 영구 보존 설정 가능")
+
+    st.divider()
     st.subheader("🤖 Gemini AI 설정")
     gemini_api_key = st.text_input("Gemini API Key (선택)", type="password", help="키가 없을 경우 내장 안전규칙 데모 모드로 작동합니다.")
     st.caption("권장 모델: `gemini-1.5-flash`")
@@ -93,13 +101,14 @@ st.markdown('<div class="main-title">🛡️ 현장 안전점검 & 사업자별 
 st.markdown('<div class="sub-title">원청·협력사별 점검 등록, 수정, 삭제 및 드론 AI 판독 실시간 대시보드</div>', unsafe_allow_html=True)
 
 # 4. 탭 구성
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 종합 현황 대시보드", 
     "🛸 드론 사진 & 서류 AI 판독",
     "✍️ 안전점검 신규 등록", 
     "📝 점검 기록 수정 · 삭제",
     "🛠️ 부적합 조치 관리", 
-    "📖 사업자별 안전가이드"
+    "📖 사업자별 안전가이드",
+    "☁️ 구글 스프레드시트 연동"
 ])
 
 # ==========================================
@@ -549,4 +558,52 @@ with tab6:
     * 작업 시작 전 안전점검(TBM) 일지 매일 작성 및 근로자 공유
     * 신규 근로자 채용 시 안전보건교육(건설업 기초안전보건교육 포함) 이수 확인
     * 지급된 개인보호구(안전모, 안전화, 안전대) 전원 착용 상태 상시 감독
+    """)
+
+# ==========================================
+# TAB 7: 구글 스프레드시트 연동 관리
+# ==========================================
+with tab7:
+    st.subheader("☁️ 구글 스프레드시트(Google Sheets) 영구 데이터베이스 연동")
+    st.write("클라우드 서버가 재부팅되어도 현장 점검 일지가 영구 보존되도록 Google Sheets와 실시간 동기화합니다.")
+
+    cur_storage = db.get_storage_status()
+    if cur_storage["is_gsheets"]:
+        st.success(f"🎉 **{cur_storage['label']}**")
+        st.info(f"**연동 시트 URL / 식별자:** `{cur_storage['detail']}`\n\n모든 신규 등록, 수정, 삭제 작업이 구글 시트에 실시간으로 영구 기록됩니다.")
+    else:
+        st.warning(f"⚠️ **{cur_storage['label']}**\n\n현재 로컬 파일(SQLite)에 저장 중입니다. Streamlit Cloud가 장기 미사용으로 재부팅될 때 데이터를 영구 보존하려면 아래 가이드에 따라 구글 시트를 연동해 주세요.")
+
+    st.markdown("---")
+    st.markdown("### 📋 1단계: 구글 시트 초기 템플릿(데이터) 준비")
+    st.write("현재 등록되어 있는 점검 데이터를 구글 시트에 바로 붙여넣거나 가져올 수 있는 CSV 파일로 다운로드합니다.")
+    
+    current_csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="📥 구글 시트용 초기 점검 데이터 다운로드 (CSV)",
+        data=current_csv,
+        file_name=f"safety_records_template_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+    st.markdown("---")
+    st.markdown("### 🚀 2단계: 3분 완성 구글 시트 연동 방법")
+    st.markdown("""
+    1. **구글 스프레드시트 만들기**:
+       * [Google Sheets (새 스프레드시트)](https://sheets.new)에 접속하여 새 시트를 생성합니다.
+       * 메뉴에서 **[파일] ➔ [가져오기] ➔ [업로드]**를 선택하여 위에서 다운로드한 CSV 파일을 업로드합니다.
+    2. **시트 공유 설정**:
+       * 우측 상단 **[공유]** 버튼 클릭 ➔ 일반 액세스를 **'링크가 있는 모든 사용자' (뷰어 또는 편집자)**로 설정합니다.
+       * **[링크 복사]**를 누릅니다.
+    3. **Streamlit Cloud에 시트 주소 등록**:
+       * Streamlit Cloud 대시보드([share.streamlit.io](https://share.streamlit.io))로 이동합니다.
+       * 내 앱 우측 **점 3개(`⋮`) ➔ [Settings] ➔ [Secrets]** 메뉴로 들어갑니다.
+       * 아래 템플릿을 복사하여 내 구글 시트 주소를 붙여넣고 **[Save]**를 클릭합니다:
+
+    ```toml
+    [connections.gsheets]
+    spreadsheet = "https://docs.google.com/spreadsheets/d/여러분의_구글시트_ID/edit"
+    ```
+    4. **완료!** 저장이 완료되면 대시보드가 자동으로 새로고침되며 구글 시트와 실시간 연동됩니다.
     """)
