@@ -7,11 +7,10 @@ echo   스마트폰/외부 접속을 위한 보안 터널을 시작합니다.
 echo ========================================================
 echo.
 
-:: 8501 포트 활성화 여부 확인 및 자동 실행
 netstat -ano | findstr ":8501" | findstr "LISTENING" >nul 2>&1
 if errorlevel 1 (
     echo [안내] 대시보드(run.bat)가 실행되지 않아 새 창으로 자동 실행합니다...
-    start "🛡️ 안전 대시보드 서버 (포트 8501)" cmd /c "run.bat"
+    start "안전 대시보드 서버 (8501)" cmd /c "run.bat"
     timeout /t 5 /nobreak >nul
 )
 
@@ -20,7 +19,7 @@ if not errorlevel 1 (
     echo [Cloudflare Tunnel 감지] 무료 HTTPS 터널을 생성합니다...
     cloudflared tunnel --url http://localhost:8501
     pause
-    exit /b 0
+    goto END
 )
 
 where ngrok >nul 2>&1
@@ -31,17 +30,19 @@ if not errorlevel 1 (
     echo.
     ngrok http 8501
     pause
-    exit /b 0
+    goto END
 )
 
 if exist "C:\laragon\bin\ngrok\ngrok.exe" (
     echo [Laragon ngrok 감지] ngrok을 이용해 포트 8501로 연결합니다...
     C:\laragon\bin\ngrok\ngrok.exe http 8501
     pause
-    exit /b 0
+    goto END
 )
 
 echo [오류] 외부 접속 도구(ngrok 또는 cloudflared)를 찾을 수 없습니다.
 echo ngrok(https://ngrok.com) 또는 cloudflared를 설치해 주세요.
 echo.
 pause
+
+:END
