@@ -6,8 +6,14 @@ echo ========================================================
 echo   스마트폰/외부 접속을 위한 보안 터널을 시작합니다.
 echo ========================================================
 echo.
-echo [주의] 먼저 다른 창에서 'run.bat'이 실행 중이어야 합니다!
-echo.
+
+:: 8501 포트 활성화 여부 확인 및 자동 실행
+netstat -ano | findstr ":8501" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 (
+    echo [안내] 대시보드(run.bat)가 실행되지 않아 새 창으로 자동 실행합니다...
+    start "🛡️ 안전 대시보드 서버 (포트 8501)" cmd /c "run.bat"
+    timeout /t 5 /nobreak >nul
+)
 
 where cloudflared >nul 2>&1
 if not errorlevel 1 (

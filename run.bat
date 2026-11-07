@@ -3,44 +3,48 @@ chcp 65001 > nul
 cd /d "%~dp0"
 
 echo ===================================================
-echo   🛡️ 현장 안전점검 및 실시간 대시보드 실행
+echo   🛡️ 현장 안전점검 및 실시간 대시보드 실행기
 echo ===================================================
 echo.
 
-:: 가상환경(.venv) 및 의존성 존재 여부 확인
-if not exist ".\.venv\Scripts\streamlit.exe" (
-    echo [안내] 가상환경 또는 필수 패키지가 설치되지 않았습니다.
-    echo [안내] 최초 1회 가상환경 생성 및 라이브러리 설치를 진행합니다...
+:: 가상환경(.venv) 확인 및 자동 설치
+if not exist ".\.venv\Scripts\activate.bat" (
+    echo [안내] 가상환경(.venv)이 존재하지 않습니다.
+    echo [안내] 최초 1회 가상환경 생성 및 필수 라이브러리를 설치합니다...
     echo.
-    
     python --version >nul 2>&1
     if errorlevel 1 (
         echo [오류] Python이 설치되어 있지 않거나 시스템 PATH에 등록되지 않았습니다.
-        echo https://www.python.org 에서 Python 3.11 이상을 설치해 주세요.
-        echo (설치 시 'Add python.exe to PATH' 옵션을 반드시 선택하세요)
+        echo https://www.python.org 에서 Python을 설치해 주세요.
         pause
         exit /b 1
     )
-    
-    echo 1. 가상환경(.venv) 생성 중...
     python -m venv .venv
-    
-    echo 2. 필수 라이브러리 설치 중 (Streamlit, Pandas, Plotly 등)...
-    .\.venv\Scripts\python.exe -m pip install --upgrade pip
-    .\.venv\Scripts\pip.exe install -r requirements.txt
-    
+    call ".\.venv\Scripts\activate.bat"
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
     if errorlevel 1 (
-        echo.
-        echo [오류] 패키지 설치 중 오류가 발생했습니다.
+        echo [오류] 패키지 설치에 실패했습니다.
         pause
         exit /b 1
     )
-    echo [완료] 환경 설정이 성공적으로 끝났습니다!
+    echo [완료] 필수 라이브러리 설치가 완료되었습니다!
     echo.
+) else (
+    call ".\.venv\Scripts\activate.bat"
 )
 
-echo 대시보드 웹 앱을 시작합니다... (포트: 8501)
-echo 접속 주소: http://localhost:8501
+echo 대시보드 서버를 시작합니다...
+echo 잠시 후 기본 웹 브라우저(Chrome/Edge)가 자동으로 열립니다!
 echo.
-.\.venv\Scripts\streamlit.exe run app.py
-pause
+echo 로컬 접속 주소: http://localhost:8501
+echo (서버를 종료하려면 이 창에서 Ctrl+C를 누르거나 창을 닫으세요)
+echo ===================================================
+echo.
+
+python -m streamlit run app.py
+if errorlevel 1 (
+    echo.
+    echo [오류 발생] 대시보드가 예기치 않게 종료되었습니다.
+    pause
+)
