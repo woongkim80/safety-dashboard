@@ -27,7 +27,9 @@ cloudflared tunnel --url http://localhost:8501
 ngrok 토큰이 등록되어 있는 경우:
 
 ```powershell
+# run_ngrok.bat 실행 또는 터미널에서 8501 포트 지정
 ngrok http 8501
 ```
-출력되는 `Forwarding https://*.ngrok-free.app` 주소로 접속합니다.
+출력되는 `Forwarding https://*.ngrok-free.app` 주소 원본 그대로 접속합니다.
+(주의: 80번 포트를 지정하거나 주소 뒤에 `/app`을 붙이면 404 에러가 발생합니다.)
 

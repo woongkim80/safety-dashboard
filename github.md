@@ -64,8 +64,9 @@ safety-dashboard/
 ├── database.py                      # SQLite3 연동 모듈 (safety_records.db)
 ├── ai_inspector.py                  # Gemini AI 멀티모달 드론 사진/서류 판독 모듈
 ├── requirements.txt                 # 경량 파이썬 의존성 목록
-├── run.bat                          # 윈도우 원클릭 로컬 실행 배치파일
-├── run_mobile_share.bat             # 외부 스마트폰 접속용 터널 실행 배치파일
+├── run.bat                          # 윈도우 원클릭 로컬 실행 배치파일 (가상환경 자동 설정)
+├── run_ngrok.bat                    # 8501 포트 전용 ngrok 원클릭 외부 공유 배치파일
+├── run_mobile_share.bat             # 외부 스마트폰 접속용 터널 실행 배치파일 (Cloudflare/ngrok 자동감지)
 └── safety_records.db                # 단일 SQLite 데이터베이스
 ```
 

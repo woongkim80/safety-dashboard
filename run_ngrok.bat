@@ -36,3 +36,4 @@ echo (종료하려면 Ctrl+C 또는 창을 닫으세요)
 echo.
 "%NGROK_BIN%" http 8501
 pause
+
