@@ -28,7 +28,7 @@ echo 접속 주소: http://localhost:8501
 echo (서버를 종료하려면 이 창에서 Ctrl+C를 누르거나 창을 닫으세요)
 echo ===================================================
 echo.
-python -m streamlit run app.py
+python -m streamlit run app.py --server.headless false
 if errorlevel 1 goto ERROR_RUN
 goto END
 
