@@ -7,6 +7,7 @@ from PIL import Image
 import io
 import re
 import numpy as np
+import importlib
 
 # 로컬 OCR 라이브러리 체크
 try:
@@ -16,6 +17,7 @@ except ImportError:
     HAS_EASYOCR = False
 
 import database as db
+importlib.reload(db)
 import ai_inspector
 
 # 1. 페이지 설정
@@ -479,7 +481,10 @@ with tab3:
 
     st.markdown("---")
     st.subheader("📋 자재 송품장 입고 누적 대시보드 (`site_invoices`)")
-    invoices_df = db.get_all_invoices()
+    if hasattr(db, "get_all_invoices"):
+        invoices_df = db.get_all_invoices()
+    else:
+        invoices_df = pd.DataFrame()
     if not invoices_df.empty:
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
