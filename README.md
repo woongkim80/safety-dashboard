@@ -1,5 +1,8 @@
 # 🛡️ 산업안전보건 통합점검 & 실시간 모니터링 대시보드
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/woongkim80/safety-dashboard/main/app.py)
+> 🌐 **24시간 실시간 라이브 웹 데모**: [https://share.streamlit.io/woongkim80/safety-dashboard/main/app.py](https://share.streamlit.io/woongkim80/safety-dashboard/main/app.py)
+
 산업안전보건법 및 중대재해처벌법 대응을 위한 Python 기반 작업장 안전점검 관리 및 실시간 대시보드 웹 애플리케이션입니다.
 
 ---
